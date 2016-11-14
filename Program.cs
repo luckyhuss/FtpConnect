@@ -15,8 +15,6 @@ namespace FtpConnect
 
             // ftp://adm-spid:spid6adm@dvedvb80.rouen.francetelecom.fr
 
-            
-
             using (FtpClient ftpConnection = new FtpClient())
             {
                 ftpConnection.Host = "spidqlf";
@@ -37,7 +35,7 @@ namespace FtpConnect
 
                 ftpConnection.SocketKeepAlive = true;
 
-                Service.FtpUtils.Download(ftpConnection);
+                Service.FtpUtils.Download(ftpConnection, "/LIVRAISONS/_TRANSFERT");
             }
 
             Console.ReadLine();
