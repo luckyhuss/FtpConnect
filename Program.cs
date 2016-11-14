@@ -19,7 +19,7 @@ namespace FtpConnect
 
             using (FtpClient ftpConnection = new FtpClient())
             {
-                ftpConnection.Host = "dvedvb80.rouen.francetelecom.fr";
+                ftpConnection.Host = "spidqlf";
                 ftpConnection.Credentials = new NetworkCredential("adm-spid", "spid6adm");
 
                 Console.WriteLine(String.Format("Connecting to server {0} with {1} ...", ftpConnection.Host, ftpConnection.Credentials.UserName));
