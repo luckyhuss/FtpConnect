@@ -1,10 +1,6 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace FtpConnect.Service
 {
@@ -22,6 +18,11 @@ namespace FtpConnect.Service
         {
             NumberFormatInfo nfi = new NumberFormatInfo { NumberGroupSeparator = ",", NumberDecimalDigits = 0 };
             return number.ToString("n", nfi);
+        }
+
+        public static string TimeSpanToString(TimeSpan timeSpan)
+        {
+            return timeSpan.ToString(@"hh\hmm\mss\s");
         }
 
         public static float CalculateBitRate(Stopwatch stopWatchBitRate, long subTotalByteTranferred)

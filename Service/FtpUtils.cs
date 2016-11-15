@@ -1,12 +1,11 @@
 ﻿using FluentFTP;
 using System;
 using System.Collections.Generic;
+using System.Configuration;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace FtpConnect.Service
 {
@@ -23,6 +22,7 @@ namespace FtpConnect.Service
 
             long totalByteTranferred = 0;
             long subTotalByteTranferred = 0;
+            List<float> bitRates = null;
 
             // set working dir on FTP server
             ftpConnection.SetWorkingDirectory(remoteDir);
@@ -48,22 +48,26 @@ namespace FtpConnect.Service
                 totalByteTranferred = 0;
                 stopWatchPerDownload.Reset();
                 stopWatchPerDownload.Start();
+                bitRates = new List<float>();
+
                 double fileSizeMB = Utility.ByteToMByte(remoteFile.Size);
+                string destinationFilename = Path.Combine(ConfigurationManager.AppSettings["Download.LocalDir"], remoteFile.Name);
 
                 try
                 {
                     using (Stream s = ftpConnection.OpenRead(remoteFile.FullName, FtpDataType.Binary))
-                    using (var file = File.Create(@"E:\t\ftp\" + remoteFile.Name))
+                    using (var file = File.Create(destinationFilename))
                     {
                         // perform transfer
                         int length;
                         float bitRate = -1;
-                        double timeETA = -1;
+                        float averageBitRate = -1;
+                        double secondETA = -1;
+                        TimeSpan timeETA = new TimeSpan();
                         int animatedProgressCount = 0;
-
-                        Console.WriteLine();
-                        Console.WriteLine(string.Format("Downloading {0} of size {1} bytes ...", remoteFile.Name, Utility.NumericSeparator(remoteFile.Size)));
+                        
                         Console.WriteLine("===");
+                        Console.WriteLine(string.Format("Downloading {0} of size {1} bytes ...", remoteFile.Name, Utility.NumericSeparator(remoteFile.Size)));
 
                         // reset stopwatch
                         stopWatchBitRate.Reset();
@@ -83,7 +87,7 @@ namespace FtpConnect.Service
                                 // and write it out to the response's output stream
                                 file.Write(buffer, 0, length);
 
-                                // send data in buffer to file system
+                                // send buffer data to file system
                                 file.Flush(true);
 
                                 subTotalByteTranferred += length;
@@ -96,10 +100,14 @@ namespace FtpConnect.Service
                                     // every 1 second, calculate bitrate
                                     bitRate = Utility.CalculateBitRate(stopWatchBitRate, subTotalByteTranferred);
 
+                                    // calculate average bitrate
+                                    bitRates.Add(bitRate);
                                     // calculate ETA
-                                    // TODO : Average bitrate
+                                    averageBitRate = bitRates.Average();
+
                                     long remainingByte = remoteFile.Size - totalByteTranferred;
-                                    timeETA = remainingByte / (bitRate * 1024.0f);
+                                    secondETA = remainingByte / (averageBitRate * 1024.0f);
+                                    timeETA = TimeSpan.FromSeconds(secondETA);
 
                                     // reset stopwatch
                                     stopWatchBitRate.Reset();
@@ -111,14 +119,15 @@ namespace FtpConnect.Service
                                 string progressBar = Utility.AnimatedProgressBar(ref animatedProgressCount, progressPercentage);
 
                                 Console.Write(
-                                    String.Format("\r {3} {2:f1}% => {0:f2} MB / {4:f2} MB @ {1:f2} KB/s - ETA : {6:f1} seconds{5}",
+                                    string.Format("\r {3} {2:f1}% => {0:f2} MB / {4:f2} MB @ {1:f2} KB/s - ETA : {6} / Run : {7}{5}",
                                         Utility.ByteToMByte(totalByteTranferred),
-                                        bitRate,
+                                        averageBitRate,
                                         progressPercentage,
                                         progressBar,
                                         fileSizeMB,
                                         new String(' ', 10),
-                                        timeETA));
+                                        Utility.TimeSpanToString(timeETA),
+                                        Utility.TimeSpanToString(stopWatchPerDownload.Elapsed)));
                             }
                             else
                             {
@@ -126,13 +135,22 @@ namespace FtpConnect.Service
                                 length = -1;
                             }
                         } while (length > 0); //Repeat until all data are read
-
-                        stopWatchPerDownload.Stop();
-
-                        Console.WriteLine();
-                        Console.WriteLine(String.Format("Downloaded {0} bytes in {1} min {2} sec", 
-                            Utility.NumericSeparator(totalByteTranferred), stopWatchPerDownload.Elapsed.Minutes, stopWatchPerDownload.Elapsed.Seconds));
                     }
+
+                    stopWatchPerDownload.Stop();
+
+                    string logEnd = String.Format("Downloaded {0} bytes in {1}",
+                        Utility.NumericSeparator(totalByteTranferred), Utility.TimeSpanToString(stopWatchPerDownload.Elapsed));
+
+                    Console.WriteLine();
+                    Console.WriteLine(logEnd);
+
+                    // TODO log
+                    File.AppendAllText("beta.log", DateTime.Now.ToString("yyyy/MM/dd HH:mm:ss - ") + logEnd + " => " + remoteFile.Name + Environment.NewLine, Encoding.Default);
+
+                    // update modified date/time
+                    FileInfo fi = new FileInfo(destinationFilename);
+                    fi.LastWriteTime = remoteFile.Modified;
                 }
                 catch (Exception ex)
                 {

@@ -1,9 +1,6 @@
 ﻿using FluentFTP;
 using System;
-using System.Diagnostics;
-using System.Globalization;
-using System.IO;
-using System.Linq;
+using System.Configuration;
 using System.Net;
 
 namespace FtpConnect
@@ -12,14 +9,15 @@ namespace FtpConnect
     {
         static void Main(string[] args)
         {
-
-            // ftp://adm-spid:spid6adm@dvedvb80.rouen.francetelecom.fr
-
             using (FtpClient ftpConnection = new FtpClient())
             {
-                ftpConnection.Host = "spidqlf";
-                ftpConnection.Credentials = new NetworkCredential("adm-spid", "spid6adm");
-
+                string downloadUrl = ConfigurationManager.AppSettings["Download.Url"];
+                string credentials = downloadUrl.Split('@')[0];
+                ftpConnection.Host = downloadUrl.Split('@')[1];
+                ftpConnection.Credentials = new NetworkCredential(
+                    credentials.Split(':')[0],
+                    credentials.Split(':')[1]);
+                
                 Console.WriteLine(String.Format("Connecting to server {0} with {1} ...", ftpConnection.Host, ftpConnection.Credentials.UserName));
 
                 ftpConnection.Connect();
@@ -35,10 +33,10 @@ namespace FtpConnect
 
                 ftpConnection.SocketKeepAlive = true;
 
-                Service.FtpUtils.Download(ftpConnection, "/LIVRAISONS/_TRANSFERT");
+                Service.FtpUtils.Download(ftpConnection, ConfigurationManager.AppSettings["Download.RemoteDir"]);
             }
 
-            Console.ReadLine();
+            // Console.ReadLine();
         }
     }
 }
