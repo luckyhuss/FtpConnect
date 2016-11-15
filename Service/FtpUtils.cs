@@ -21,8 +21,8 @@ namespace FtpConnect.Service
             Stopwatch stopWatchBitRate = new Stopwatch();
             Stopwatch stopWatchPerDownload = new Stopwatch();
 
-            double totalByteTranferred = 0;
-            double subTotalByteTranferred = 0;
+            long totalByteTranferred = 0;
+            long subTotalByteTranferred = 0;
 
             // set working dir on FTP server
             ftpConnection.SetWorkingDirectory(remoteDir);
@@ -33,24 +33,22 @@ namespace FtpConnect.Service
             Console.WriteLine("File listing completed : ");
 
             Console.WriteLine(
-                String.Format("\t{0}",
-                    String.Join(Environment.NewLine + "\t",
+                string.Format("\t{0}",
+                    string.Join(Environment.NewLine + "\t",
                         remoteFiles.Select(
-                            ftp => String.Format("{0} [{1:f2} MB]",
-                                ftp.Name, ftp.Size / 1024.0f / 1024.0f)).ToList())));
-
-            // How many bytes to read at a time and send to the client
-            int bytesToRead = 100000;
+                            ftp => string.Format("{0} [{1:f2} MB]",
+                                ftp.Name, Utility.ByteToMByte(ftp.Size))).ToList())));
 
             // Buffer to read bytes in chunk size specified above
-            byte[] buffer = new Byte[bytesToRead];
+            byte[] buffer = null;
 
-            foreach(var remoteFile in remoteFiles)
+            foreach (var remoteFile in remoteFiles)
             {
                 // reset
                 totalByteTranferred = 0;
                 stopWatchPerDownload.Reset();
                 stopWatchPerDownload.Start();
+                double fileSizeMB = Utility.ByteToMByte(remoteFile.Size);
 
                 try
                 {
@@ -59,12 +57,12 @@ namespace FtpConnect.Service
                     {
                         // perform transfer
                         int length;
-                        float bitRate = -1.0f;
-
-                        NumberFormatInfo nfi = new NumberFormatInfo { NumberGroupSeparator = ",", NumberDecimalDigits = 0 };
+                        float bitRate = -1;
+                        double timeETA = -1;
+                        int animatedProgressCount = 0;
 
                         Console.WriteLine();
-                        Console.WriteLine(String.Format("Downloading {0} of size {1} bytes ...", remoteFile.Name, remoteFile.Size.ToString("n", nfi)));
+                        Console.WriteLine(string.Format("Downloading {0} of size {1} bytes ...", remoteFile.Name, Utility.NumericSeparator(remoteFile.Size)));
                         Console.WriteLine("===");
 
                         // reset stopwatch
@@ -73,11 +71,14 @@ namespace FtpConnect.Service
 
                         do
                         {
+                            // initialize and clear the buffer
+                            buffer = new Byte[Utility.CONST_BYTETOREAD];
+
                             // Verify that the client is connected.
                             if (ftpConnection.IsConnected)
                             {
                                 // Read data into the buffer.
-                                length = s.Read(buffer, 0, bytesToRead);
+                                length = s.Read(buffer, 0, Utility.CONST_BYTETOREAD);
 
                                 // and write it out to the response's output stream
                                 file.Write(buffer, 0, length);
@@ -90,62 +91,59 @@ namespace FtpConnect.Service
 
                                 if (stopWatchBitRate.ElapsedMilliseconds >= 1000)
                                 {
-                                    // 1 second
+                                    // stop the stopwatch
                                     stopWatchBitRate.Stop();
+                                    // every 1 second, calculate bitrate
+                                    bitRate = Utility.CalculateBitRate(stopWatchBitRate, subTotalByteTranferred);
 
-                                    // transfer rate = (kiloByte / elapsedSeconds)
-                                    // kiloByte = (byte / 1000)
-                                    // elapsedSeconds = ElapsedMilliseconds / 1000
+                                    // calculate ETA
+                                    // TODO : Average bitrate
+                                    long remainingByte = remoteFile.Size - totalByteTranferred;
+                                    timeETA = remainingByte / (bitRate * 1024.0f);
 
-                                    bitRate = ((float)(subTotalByteTranferred / 1000) / ((float)stopWatchBitRate.ElapsedMilliseconds / 1000)); // kbps
-
-                                    //Console.Write("\rspeed : " + bitRate + " - byte " + subTotalByteTranferred);
-
+                                    // reset stopwatch
                                     stopWatchBitRate.Reset();
                                     stopWatchBitRate.Start();
                                     subTotalByteTranferred = 0;
                                 }
 
-                                double progressPercentage = totalByteTranferred / remoteFile.Size * 100;
-
-                                // [....................]
-                                string progressBarDot = new String('.', (int)progressPercentage / 5); // ....
-                                string progressBarSpace = new String(' ', (20 - (int)progressPercentage / 5)); // space
-                                string progressBar = String.Format("[{0}{1}]", progressBarDot, progressBarSpace);
+                                double progressPercentage = (double)totalByteTranferred / remoteFile.Size * 100;
+                                string progressBar = Utility.AnimatedProgressBar(ref animatedProgressCount, progressPercentage);
 
                                 Console.Write(
-                                    String.Format("\r {3} {2:f1}% => {0} bytes @ {1:f2} KB/s          ",
-                                        totalByteTranferred.ToString("n", nfi),
+                                    String.Format("\r {3} {2:f1}% => {0:f2} MB / {4:f2} MB @ {1:f2} KB/s - ETA : {6:f1} seconds{5}",
+                                        Utility.ByteToMByte(totalByteTranferred),
                                         bitRate,
                                         progressPercentage,
-                                        progressBar));
-
-                                // clear the buffer
-                                buffer = new Byte[bytesToRead];
+                                        progressBar,
+                                        fileSizeMB,
+                                        new String(' ', 10),
+                                        timeETA));
                             }
                             else
                             {
                                 // cancel the download if client has disconnected
                                 length = -1;
                             }
-                        } while (length > 0); //Repeat until no data is read
+                        } while (length > 0); //Repeat until all data are read
 
                         stopWatchPerDownload.Stop();
 
                         Console.WriteLine();
-                        Console.WriteLine(String.Format("Download completed in {0:f2} minutes", stopWatchPerDownload.Elapsed.TotalMinutes));
+                        Console.WriteLine(String.Format("Downloaded {0} bytes in {1} min {2} sec", 
+                            Utility.NumericSeparator(totalByteTranferred), stopWatchPerDownload.Elapsed.Minutes, stopWatchPerDownload.Elapsed.Seconds));
                     }
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    // Typical exceptions here are IOException, SocketException, or a FtpCommandException
+                    Console.WriteLine(ex.StackTrace);
                 }
-            }            
+            }
         }
 
         public static void Upload()
         {
-
+            // todo :
         }
     }
 }
