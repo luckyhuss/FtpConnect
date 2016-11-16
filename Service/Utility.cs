@@ -16,6 +16,8 @@ namespace FtpConnect.Service
         public const string CONST_PREFIX_ARCHIVE_OLD = "_old";
         public const string CONST_PREFIX_ARCHIVE_OLDER = "_older";
 
+        public static string LOG_FILENAME = string.Format(ConfigurationManager.AppSettings["Log.Filename"], DateTime.Today.ToString("yyyyMMdd"));
+
         public static double ByteToMByte(long fileSize)
         {
             return fileSize / (1024.0f * 1024.0f);
@@ -71,7 +73,7 @@ namespace FtpConnect.Service
 
             // add log file
             File.AppendAllText(
-                ConfigurationManager.AppSettings["Log.Filename"],
+                Utility.LOG_FILENAME,
                 string.Format("{0} - {1}{2}", DateTime.Now.ToString("yyyy/MM/dd HH:mm:ss"), message, Environment.NewLine), Encoding.Default);
         }
     }
