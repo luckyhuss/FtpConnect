@@ -61,10 +61,13 @@ namespace FtpConnect.Service
             return progressBar;
         }
 
-        public static void LogMessage(string message)
+        public static void LogMessage(string message, bool console = true)
         {
-            // write on console
-            Console.WriteLine(message);
+            if (console)
+            {
+                // write on console
+                Console.WriteLine(message);
+            }
 
             // add log file
             File.AppendAllText(

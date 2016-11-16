@@ -23,7 +23,7 @@ namespace FtpConnect
                 ftpConnection.SocketKeepAlive = true;
                 ftpConnection.ConnectTimeout = 5000;
 
-                Utility.LogMessage(String.Format("Connecting to server {0} with {1} ...", ftpConnection.Host, ftpConnection.Credentials.UserName));
+                Utility.LogMessage(String.Format("START : Connecting to server {0} with {1} ...", ftpConnection.Host, ftpConnection.Credentials.UserName));
 
                 ftpConnection.Connect();
 

@@ -47,6 +47,7 @@ namespace FtpConnect.Service
                 stopWatchPerDownload.Reset();
                 stopWatchPerDownload.Start();
                 bitRates = new List<float>();
+                bool percentageFlag = false;
 
                 double fileSizeMB = Utility.ByteToMByte(remoteFile.Size);
                 string destinationFilename = Path.Combine(ConfigurationManager.AppSettings["Download.LocalDir"], remoteFile.Name);
@@ -57,23 +58,47 @@ namespace FtpConnect.Service
                     // _EPPlus 4.1 Sample.zip_older exists, therefore _old exists
                     // delete _older
                     File.Delete(destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLDER);
-                    // rename _old -> older
-                    File.Move(destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLD, destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLDER);
-                    // rename new -> _old
-                    File.Move(destinationFilename, destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLD);
+
+                    try
+                    {
+                        // rename _old -> older
+                        File.Move(destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLD, destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLDER);
+                    }
+                    catch { }
+
+                    try
+                    {
+                        // rename new -> _old
+                        File.Move(destinationFilename, destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLD);
+                    }
+                    catch { }
                 }
                 else if (File.Exists(destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLD))
                 {
                     // _EPPlus 4.1 Sample.zip_old exists but not _older
-                    // rename _old -> _older
-                    File.Move(destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLD, destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLDER);
-                    // rename new -> _old
-                    File.Move(destinationFilename, destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLD);
+
+                    try
+                    {
+                        // rename _old -> _older
+                        File.Move(destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLD, destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLDER);
+                    }
+                    catch { }
+
+                    try
+                    {
+                        // rename new -> _old
+                        File.Move(destinationFilename, destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLD);
+                    }
+                    catch { }
                 }
                 else
                 {
-                    // create first _old
-                    File.Move(destinationFilename, destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLD);
+                    try
+                    {
+                        // create first _old
+                        File.Move(destinationFilename, destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLD);
+                    }
+                    catch { }
                 }
 
                 try
@@ -140,8 +165,8 @@ namespace FtpConnect.Service
                             double progressPercentage = (double)totalByteTranferred / remoteFile.Size * 100;
                             string progressBar = Utility.AnimatedProgressBar(ref animatedProgressCount, progressPercentage);
 
-                            Console.Write(
-                                string.Format("\r {3} {2:f1}% {0:f2}/{4:f2}MB @ {1:f2}KB/s {6} {8}{5}",
+                            string progressDetails =
+                                string.Format("{3} {2:f1}% {0:f2}MB / {4:f2}MB @ {1:f2} KB/s - ETA : {6} / Run : {7}{5}",
                                     Utility.ByteToMByte(totalByteTranferred),
                                     averageBitRate,
                                     progressPercentage,
@@ -149,8 +174,20 @@ namespace FtpConnect.Service
                                     fileSizeMB,
                                     new String(' ', 10),
                                     Utility.TimeSpanToString(timeETA),
-                                    Utility.TimeSpanToString(stopWatchPerDownload.Elapsed),
-                                    length));
+                                    Utility.TimeSpanToString(stopWatchPerDownload.Elapsed));
+
+                            Console.Write("\r " + progressDetails);
+
+                            if (!percentageFlag && Math.Floor(progressPercentage) % 10 == 0)
+                            {
+                                Utility.LogMessage(progressDetails, false);
+                                // wrote once
+                                percentageFlag = true;
+                            }
+                            else if (Math.Floor(progressPercentage) % 10 != 0)
+                            {
+                                percentageFlag = false;
+                            }
 
                         } while (length > 0); //Repeat until all data are read
                     }
@@ -165,13 +202,15 @@ namespace FtpConnect.Service
                 string logEnd = String.Format("Downloaded {0} bytes in {1} => {2}",
                     Utility.NumericSeparator(totalByteTranferred), Utility.TimeSpanToString(stopWatchPerDownload.Elapsed), remoteFile.Name);
 
-                Utility.LogMessage(string.Empty);
+                Utility.LogMessage(string.Empty, false);
                 Utility.LogMessage(logEnd);
 
                 // update modified date/time
                 FileInfo fiDownload = new FileInfo(destinationFilename);
                 fiDownload.LastWriteTime = remoteFile.Modified.AddHours(-1); // offset by one hour                
             }
+
+            Utility.LogMessage("END");
         }       
 
         public static void Upload()
