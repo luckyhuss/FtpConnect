@@ -1,6 +1,9 @@
 ﻿using System;
+using System.Configuration;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
+using System.Text;
 
 namespace FtpConnect.Service
 {
@@ -8,6 +11,10 @@ namespace FtpConnect.Service
     {
         // How many bytes to read at a time and send to the client
         public const int CONST_BYTETOREAD = 100000;
+
+        // archiving of files
+        public const string CONST_PREFIX_ARCHIVE_OLD = "_old";
+        public const string CONST_PREFIX_ARCHIVE_OLDER = "_older";
 
         public static double ByteToMByte(long fileSize)
         {
@@ -52,6 +59,17 @@ namespace FtpConnect.Service
             animatedProgressCount++;
 
             return progressBar;
+        }
+
+        public static void LogMessage(string message)
+        {
+            // write on console
+            Console.WriteLine(message);
+
+            // add log file
+            File.AppendAllText(
+                ConfigurationManager.AppSettings["Log.Filename"],
+                string.Format("{0} - {1}{2}", DateTime.Now.ToString("yyyy/MM/dd HH:mm:ss"), message, Environment.NewLine), Encoding.Default);
         }
     }
 }
