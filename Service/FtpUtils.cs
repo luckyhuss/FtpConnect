@@ -5,6 +5,7 @@ using System.Configuration;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Text;
 
 namespace FtpConnect.Service
@@ -12,10 +13,76 @@ namespace FtpConnect.Service
     class FtpUtils
     {
         /// <summary>
+        /// FTP Connection
+        /// </summary>
+        /// <returns></returns>
+        private static FtpClient Connect(string connectionUrl, string workingDirectory)
+        {
+            FtpClient ftpConnection = new FtpClient();
+
+            // example : user¤pwd¤address¤ftp
+            string[] details = connectionUrl.Split('¤');
+            string protocol = details[3];
+
+            ftpConnection.Host = details[2];
+            ftpConnection.Credentials = new NetworkCredential(details[0], details[1]);
+
+            ftpConnection.DataConnectionType = FtpDataConnectionType.AutoPassive;
+            ftpConnection.SocketKeepAlive = true;            
+            ftpConnection.ValidateCertificate += FtpConnection_ValidateCertificate;
+
+            switch (protocol)
+            {
+                case "ftp":
+                    ftpConnection.EncryptionMode = FtpEncryptionMode.None;
+                    ftpConnection.SslProtocols = System.Security.Authentication.SslProtocols.Default;
+                    break;
+                case "ftpes":
+                    ftpConnection.EncryptionMode = FtpEncryptionMode.Explicit;
+                    ftpConnection.SslProtocols = System.Security.Authentication.SslProtocols.Tls;
+                    break;
+                case "ftps":
+                    ftpConnection.EncryptionMode = FtpEncryptionMode.Implicit;
+                    ftpConnection.SslProtocols = System.Security.Authentication.SslProtocols.Tls;
+                    break;
+                case "sftp":
+                    ftpConnection.EncryptionMode = FtpEncryptionMode.None;
+                    ftpConnection.SslProtocols = System.Security.Authentication.SslProtocols.Default;
+                    ftpConnection.Port = 22;
+                    break;
+            }
+
+            Utility.LogMessage(String.Format("Connecting to server {0} with {1} ..", ftpConnection.Host, ftpConnection.Credentials.UserName));
+
+            try
+            {
+                ftpConnection.Connect();
+            }
+            catch (Exception ex)
+            {
+                Utility.LogMessage("Error connecting to server. " + ex.Message);
+                return null;
+            }
+
+            if (ftpConnection.IsConnected)
+                Utility.LogMessage("Connected to server");
+
+            // set working dir for FTP server
+            ftpConnection.SetWorkingDirectory(workingDirectory);
+
+            return ftpConnection;
+        }
+
+        private static void FtpConnection_ValidateCertificate(FtpClient control, FtpSslValidationEventArgs e)
+        {
+            e.Accept = true;
+        }
+
+        /// <summary>
         ///  Download files from FTP server
         /// </summary>
         /// <param name="ftpConnection"></param>
-        public static void Download(FtpClient ftpConnection, string remoteDir)
+        public static bool Download()
         {
             Stopwatch stopWatchBitRate = new Stopwatch();
             Stopwatch stopWatchPerDownload = new Stopwatch();
@@ -24,18 +91,22 @@ namespace FtpConnect.Service
             long subTotalByteTranferred = 0;
             List<float> bitRates = null;
 
-            // set working dir on FTP server
-            ftpConnection.SetWorkingDirectory(remoteDir);
+            FtpClient ftpConnectionDownload = Connect(
+                ConfigurationManager.AppSettings["Download.Url"], 
+                ConfigurationManager.AppSettings["Download.RemoteDir"]);
+            FtpClient ftpConnectionUpload = null;
 
-            Utility.LogMessage(String.Format("Listing files in {0} ...", ftpConnection.GetWorkingDirectory()));
-            var remoteFiles = ftpConnection.GetListing();
+            if (ftpConnectionDownload == null) return false;
+
+            Utility.LogMessage(String.Format("Listing files in {0} ..", ftpConnectionDownload.GetWorkingDirectory()));
+            var remoteFiles = ftpConnectionDownload.GetListing();
             
             Utility.LogMessage(
                 string.Format("File listing completed :\n\t{0}",
                     string.Join(Environment.NewLine + "\t",
                         remoteFiles.Select(
-                            ftp => string.Format("{0} [{1:f2} MB]",
-                                ftp.Name, Utility.ByteToMByte(ftp.Size))).ToList())));
+                            ftpFile => string.Format("{2} [{1:f2} MB] for {0}",
+                                ftpFile.Name, Utility.ByteToMByte(ftpFile.Size), ftpFile.Modified.AddHours(-1))).ToList())));
 
             // Buffer to read bytes in chunk size specified above
             byte[] buffer = null;
@@ -48,11 +119,12 @@ namespace FtpConnect.Service
                 stopWatchPerDownload.Start();
                 bitRates = new List<float>();
                 bool percentageFlag = false;
+                ftpConnectionUpload = null;
 
                 double fileSizeMB = Utility.ByteToMByte(remoteFile.Size);
                 string destinationFilename = Path.Combine(ConfigurationManager.AppSettings["Download.LocalDir"], remoteFile.Name);
 
-                // archive files for past two days
+                // archive LOCAL files for past two days
                 if (File.Exists(destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLDER))
                 {
                     // _EPPlus 4.1 Sample.zip_older exists, therefore _old exists
@@ -101,10 +173,33 @@ namespace FtpConnect.Service
                     catch { }
                 }
 
+                // archive REMOTE files
+                //TODO
+
+                // check if Aspin or Spid file
+                if (remoteFile.Name.ToLower().Contains("aspin"))
+                {
+                    // aspin file
+                    ftpConnectionUpload = Connect(
+                        ConfigurationManager.AppSettings["Upload.Aspin.Url"],
+                        ConfigurationManager.AppSettings["Upload.Aspin.RemoteDir"]);
+                }
+                else // if (remoteFile.Name.ToLower().Contains("spid"))
+                {
+                    // spid or other files
+                    ftpConnectionUpload = Connect(
+                        ConfigurationManager.AppSettings["Upload.Spid.Url"],
+                        ConfigurationManager.AppSettings["Upload.Spid.RemoteDir"]);
+                }
+
                 try
                 {
+                    Stream streamUpload = null;
 
-                    using (Stream s = ftpConnection.OpenRead(remoteFile.FullName, FtpDataType.Binary))
+                    if (ftpConnectionUpload != null)
+                        streamUpload = ftpConnectionUpload.OpenWrite(ftpConnectionUpload.GetWorkingDirectory() + "/" + remoteFile.Name, FtpDataType.Binary);
+
+                    using (Stream s = ftpConnectionDownload.OpenRead(remoteFile.FullName, FtpDataType.Binary))                    
                     using (var destFile = File.Create(destinationFilename))
                     {
                         // perform transfer
@@ -116,7 +211,7 @@ namespace FtpConnect.Service
                         int animatedProgressCount = 0;
 
                         Utility.LogMessage("===");
-                        Utility.LogMessage(string.Format("Downloading {0} of size {1} bytes ...", remoteFile.Name, Utility.NumericSeparator(remoteFile.Size)));
+                        Utility.LogMessage(string.Format("Downloading {0} of size {1} bytes ..", remoteFile.Name, Utility.NumericSeparator(remoteFile.Size)));
 
                         // reset stopwatch
                         stopWatchBitRate.Reset();
@@ -132,9 +227,15 @@ namespace FtpConnect.Service
 
                             // and write it out to the response's output stream
                             destFile.Write(buffer, 0, length);
-
                             // send buffer data to file system
                             destFile.Flush(true);
+
+                            if (streamUpload != null)
+                            {
+                                // write to upload ftp server
+                                streamUpload.Write(buffer, 0, length);
+                                streamUpload.Flush();
+                            }
 
                             subTotalByteTranferred += length;
                             totalByteTranferred += length;
@@ -191,10 +292,13 @@ namespace FtpConnect.Service
 
                         } while (length > 0); //Repeat until all data are read
                     }
+
+                    streamUpload.Close();
                 }
                 catch (Exception ex)
                 {
                     Utility.LogMessage(ex.StackTrace);
+                    return false;
                 }
 
                 stopWatchPerDownload.Stop();
@@ -207,15 +311,20 @@ namespace FtpConnect.Service
 
                 // update modified date/time
                 FileInfo fiDownload = new FileInfo(destinationFilename);
-                fiDownload.LastWriteTime = remoteFile.Modified.AddHours(-1); // offset by one hour                
+                fiDownload.LastWriteTime = remoteFile.Modified.AddHours(-1); // offset by one hour
+
+                ftpConnectionUpload.Disconnect();
             }
 
-            Utility.LogMessage("END");
+            ftpConnectionDownload.Disconnect();
+
+            Utility.LogMessage(String.Format("{0} successful downloads", remoteFiles.Length));
+            return true;
         }       
 
         public static void Upload()
         {
-            // todo :
+            
         }
     }
 }
