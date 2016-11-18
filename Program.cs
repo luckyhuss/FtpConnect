@@ -7,10 +7,7 @@ namespace FtpConnect
         static void Main(string[] args)
         {
             Utility.LogMessage("START");
-            if (FtpUtils.Download())
-            {
-                FtpUtils.Upload();
-            }
+            FtpUtils.Download();
             Utility.LogMessage("END");
         }
     }

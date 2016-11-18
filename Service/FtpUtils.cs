@@ -95,7 +95,7 @@ namespace FtpConnect.Service
                 ConfigurationManager.AppSettings["Download.Url"], 
                 ConfigurationManager.AppSettings["Download.RemoteDir"]);
             FtpClient ftpConnectionUpload = null;
-
+            
             if (ftpConnectionDownload == null) return false;
 
             Utility.LogMessage(String.Format("Listing files in {0} ..", ftpConnectionDownload.GetWorkingDirectory()));
@@ -123,59 +123,11 @@ namespace FtpConnect.Service
 
                 double fileSizeMB = Utility.ByteToMByte(remoteFile.Size);
                 string destinationFilename = Path.Combine(ConfigurationManager.AppSettings["Download.LocalDir"], remoteFile.Name);
+                string destinationFilenameRemote = string.Empty;
 
                 // archive LOCAL files for past two days
-                if (File.Exists(destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLDER))
-                {
-                    // _EPPlus 4.1 Sample.zip_older exists, therefore _old exists
-                    // delete _older
-                    File.Delete(destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLDER);
-
-                    try
-                    {
-                        // rename _old -> older
-                        File.Move(destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLD, destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLDER);
-                    }
-                    catch { }
-
-                    try
-                    {
-                        // rename new -> _old
-                        File.Move(destinationFilename, destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLD);
-                    }
-                    catch { }
-                }
-                else if (File.Exists(destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLD))
-                {
-                    // _EPPlus 4.1 Sample.zip_old exists but not _older
-
-                    try
-                    {
-                        // rename _old -> _older
-                        File.Move(destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLD, destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLDER);
-                    }
-                    catch { }
-
-                    try
-                    {
-                        // rename new -> _old
-                        File.Move(destinationFilename, destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLD);
-                    }
-                    catch { }
-                }
-                else
-                {
-                    try
-                    {
-                        // create first _old
-                        File.Move(destinationFilename, destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLD);
-                    }
-                    catch { }
-                }
-
-                // archive REMOTE files
-                //TODO
-
+                ArchiveFiles(destinationFilename);
+                
                 // check if Aspin or Spid file
                 if (remoteFile.Name.ToLower().Contains("aspin"))
                 {
@@ -183,6 +135,7 @@ namespace FtpConnect.Service
                     ftpConnectionUpload = Connect(
                         ConfigurationManager.AppSettings["Upload.Aspin.Url"],
                         ConfigurationManager.AppSettings["Upload.Aspin.RemoteDir"]);
+                    
                 }
                 else // if (remoteFile.Name.ToLower().Contains("spid"))
                 {
@@ -197,9 +150,17 @@ namespace FtpConnect.Service
                     Stream streamUpload = null;
 
                     if (ftpConnectionUpload != null)
-                        streamUpload = ftpConnectionUpload.OpenWrite(ftpConnectionUpload.GetWorkingDirectory() + "/" + remoteFile.Name, FtpDataType.Binary);
+                    {
+                        destinationFilenameRemote = ftpConnectionUpload.GetWorkingDirectory() + "/" + remoteFile.Name;
 
-                    using (Stream s = ftpConnectionDownload.OpenRead(remoteFile.FullName, FtpDataType.Binary))                    
+                        // archive REMOTE files for past two days
+                        ArchiveFiles(destinationFilenameRemote, true, ftpConnectionUpload);
+
+                        // open stream now, after rename
+                        streamUpload = ftpConnectionUpload.OpenWrite(destinationFilenameRemote, FtpDataType.Binary);
+                    }
+
+                    using (Stream s = ftpConnectionDownload.OpenRead(remoteFile.FullName, FtpDataType.Binary))
                     using (var destFile = File.Create(destinationFilename))
                     {
                         // perform transfer
@@ -234,7 +195,7 @@ namespace FtpConnect.Service
                             {
                                 // write to upload ftp server
                                 streamUpload.Write(buffer, 0, length);
-                                streamUpload.Flush();
+                                //streamUpload.Flush();
                             }
 
                             subTotalByteTranferred += length;
@@ -273,7 +234,7 @@ namespace FtpConnect.Service
                                     progressPercentage,
                                     progressBar,
                                     fileSizeMB,
-                                    new String(' ', 10),
+                                    new string(' ', 10),
                                     Utility.TimeSpanToString(timeETA),
                                     Utility.TimeSpanToString(stopWatchPerDownload.Elapsed));
 
@@ -282,7 +243,7 @@ namespace FtpConnect.Service
                             if (!percentageFlag && Math.Floor(progressPercentage) % 10 == 0)
                             {
                                 Utility.LogMessage(progressDetails, false);
-                                // wrote once
+                                // write only once
                                 percentageFlag = true;
                             }
                             else if (Math.Floor(progressPercentage) % 10 != 0)
@@ -293,34 +254,145 @@ namespace FtpConnect.Service
                         } while (length > 0); //Repeat until all data are read
                     }
 
-                    streamUpload.Close();
+                    if (streamUpload != null)
+                    {
+                        streamUpload.Flush();
+                        streamUpload.Close();
+                    }
                 }
                 catch (Exception ex)
                 {
-                    Utility.LogMessage(ex.StackTrace);
+                    Utility.LogMessage(String.Format("{0} - {1}", ex.Message, ex.StackTrace));
                     return false;
                 }
 
                 stopWatchPerDownload.Stop();
 
-                string logEnd = String.Format("Downloaded {0} bytes in {1} => {2}",
+                string logEnd = string.Format("Downloaded {0} bytes in {1} => {2}",
                     Utility.NumericSeparator(totalByteTranferred), Utility.TimeSpanToString(stopWatchPerDownload.Elapsed), remoteFile.Name);
 
-                Utility.LogMessage(string.Empty, false);
+                Console.WriteLine();
                 Utility.LogMessage(logEnd);
 
                 // update modified date/time
                 FileInfo fiDownload = new FileInfo(destinationFilename);
                 fiDownload.LastWriteTime = remoteFile.Modified.AddHours(-1); // offset by one hour
 
-                ftpConnectionUpload.Disconnect();
+                if (ftpConnectionUpload != null)
+                    ftpConnectionUpload.Disconnect();
             }
 
             ftpConnectionDownload.Disconnect();
 
-            Utility.LogMessage(String.Format("{0} successful downloads", remoteFiles.Length));
+            Utility.LogMessage(string.Format("{0} successful downloads", remoteFiles.Length));
             return true;
-        }       
+        }
+
+        private static void ArchiveFiles(string destinationFilename, bool ftpFile = false, FtpClient ftpConnectionUpload = null)
+        {
+            Utility.LogMessage(string.Format("Archiving {0} file : {1}", ftpFile ? "REMOTE" : "LOCAL", destinationFilename));
+
+            if (ftpFile && ftpConnectionUpload != null)
+            {
+                // REMOTE files
+                if (ftpConnectionUpload.FileExists(destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLDER))
+                {
+                    // _EPPlus 4.1 Sample.zip_older exists, therefore _old exists
+                    // delete _older
+                    ftpConnectionUpload.DeleteFile(destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLDER);
+
+                    try
+                    {
+                        // rename _old -> older
+                        ftpConnectionUpload.Rename(destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLD, destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLDER);
+                    }
+                    catch { }
+
+                    try
+                    {
+                        // rename new -> _old
+                        ftpConnectionUpload.Rename(destinationFilename, destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLD);
+                    }
+                    catch { }
+                }
+                else if (ftpConnectionUpload.FileExists(destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLD))
+                {
+                    // _EPPlus 4.1 Sample.zip_old exists but not _older
+                    try
+                    {
+                        // rename _old -> _older
+                        ftpConnectionUpload.Rename(destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLD, destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLDER);
+                    }
+                    catch { }
+
+                    try
+                    {
+                        // rename new -> _old
+                        ftpConnectionUpload.Rename(destinationFilename, destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLD);
+                    }
+                    catch { }
+                }
+                else
+                {
+                    try
+                    {
+                        // create first _old
+                        ftpConnectionUpload.Rename(destinationFilename, destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLD);
+                    }
+                    catch { }
+                }
+            }
+            else
+            {
+                // LOCAL files
+                if (File.Exists(destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLDER))
+                {
+                    // _EPPlus 4.1 Sample.zip_older exists, therefore _old exists
+                    // delete _older
+                    File.Delete(destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLDER);
+
+                    try
+                    {
+                        // rename _old -> older
+                        File.Move(destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLD, destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLDER);
+                    }
+                    catch { }
+
+                    try
+                    {
+                        // rename new -> _old
+                        File.Move(destinationFilename, destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLD);
+                    }
+                    catch { }
+                }
+                else if (File.Exists(destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLD))
+                {
+                    // _EPPlus 4.1 Sample.zip_old exists but not _older
+                    try
+                    {
+                        // rename _old -> _older
+                        File.Move(destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLD, destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLDER);
+                    }
+                    catch { }
+
+                    try
+                    {
+                        // rename new -> _old
+                        File.Move(destinationFilename, destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLD);
+                    }
+                    catch { }
+                }
+                else
+                {
+                    try
+                    {
+                        // create first _old
+                        File.Move(destinationFilename, destinationFilename + Utility.CONST_PREFIX_ARCHIVE_OLD);
+                    }
+                    catch { }
+                }
+            }
+        }
 
         public static void Upload()
         {
